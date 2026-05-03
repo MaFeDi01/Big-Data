@@ -129,20 +129,10 @@ st.sidebar.markdown("### Databricks Connection")
 connect_btn = False
 host = http_path = token = ""
 
-# Auto-connect from Streamlit secrets if available
-if "data" not in st.session_state and hasattr(st, "secrets"):
-    try:
-        _h  = st.secrets.get("DATABRICKS_HOST", "")
-        _hp = st.secrets.get("DATABRICKS_HTTP_PATH", "")
-        _t  = st.secrets.get("DATABRICKS_TOKEN", "")
-        if _h and _hp and _t:
-            top_tracks, tier_dist, track_info, recs, playlist_idx = load_from_databricks(_h, _hp, _t)
-            original_tracks = load_original_tracks_db(_h, _hp, _t)
-            st.session_state["data"] = (top_tracks, tier_dist, track_info, recs, playlist_idx)
-            st.session_state["original_tracks"] = original_tracks
-            st.session_state["data_source"] = "databricks"
-    except Exception:
-        pass
+# Read secrets if available
+_secrets_host  = st.secrets.get("DATABRICKS_HOST", "dbc-6b2f8d9c-9761.cloud.databricks.com") if hasattr(st, "secrets") else "dbc-6b2f8d9c-9761.cloud.databricks.com"
+_secrets_hp    = st.secrets.get("DATABRICKS_HTTP_PATH", "") if hasattr(st, "secrets") else ""
+_secrets_token = st.secrets.get("DATABRICKS_TOKEN", "") if hasattr(st, "secrets") else ""
 
 if "data" in st.session_state:
     st.sidebar.success("Connected to Databricks")
@@ -152,22 +142,9 @@ if "data" in st.session_state:
         st.rerun()
 else:
     with st.sidebar.expander("Connect to Databricks", expanded=True):
-        host = st.text_input(
-            "Workspace URL",
-            value="dbc-6b2f8d9c-9761.cloud.databricks.com",
-            help="Your Databricks workspace hostname (without https://)"
-        )
-        http_path = st.text_input(
-            "HTTP Path",
-            placeholder="/sql/1.0/warehouses/xxxx",
-            help="SQL Warehouse → Connection details → HTTP Path"
-        )
-        token = st.text_input(
-            "Access Token",
-            type="password",
-            placeholder="dapi...",
-            help="User Settings → Developer → Access Tokens"
-        )
+        host = st.text_input("Workspace URL", value=_secrets_host)
+        http_path = st.text_input("HTTP Path", value=_secrets_hp)
+        token = st.text_input("Access Token", value=_secrets_token, type="password")
         connect_btn = st.button("Connect & Load Data", type="primary", use_container_width=True)
 
 st.sidebar.markdown("---")
