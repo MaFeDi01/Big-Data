@@ -37,51 +37,7 @@ UNIQUE_PLAYLISTS   = 1_000_000
 UNIQUE_TRACKS      = 2_262_292
 UNIQUE_ARTISTS     = 295_860
 
-# ── Sidebar ──────────────────────────────────────────────────────────────────
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Select Dashboard", [
-    "Dashboard 1: Pipeline Analytics",
-    "Dashboard 2: Recommendations"
-])
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Databricks Connection")
-
-connect_btn = False
-host = http_path = token = ""
-
-if "data" in st.session_state:
-    st.sidebar.success("Connected to Databricks")
-    if st.sidebar.button("Disconnect", use_container_width=True):
-        del st.session_state["data"]
-        del st.session_state["data_source"]
-        st.rerun()
-else:
-    with st.sidebar.expander("Connect to Databricks", expanded=True):
-        host = st.text_input(
-            "Workspace URL",
-            value="dbc-6b2f8d9c-9761.cloud.databricks.com",
-            help="Your Databricks workspace hostname (without https://)"
-        )
-        http_path = st.text_input(
-            "HTTP Path",
-            placeholder="/sql/1.0/warehouses/xxxx",
-            help="SQL Warehouse → Connection details → HTTP Path"
-        )
-        token = st.text_input(
-            "Access Token",
-            type="password",
-            placeholder="dapi...",
-            help="User Settings → Developer → Access Tokens"
-        )
-        connect_btn = st.button("Connect & Load Data", type="primary", use_container_width=True)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Project:** Spotify MPD Recommendation Pipeline")
-st.sidebar.markdown("**Authors:** Diessner, Fiedler, Ryciuk, Leonetti Luparini, De Tuddo")
-st.sidebar.markdown("**Dataset:** 66.3M rows · 1M playlists · 2.26M tracks")
-
-# ── Data loading ─────────────────────────────────────────────────────────────
+# ── Data loading functions ────────────────────────────────────────────────────
 def run_query(conn, sql):
     cursor = conn.cursor()
     cursor.execute(sql)
@@ -123,20 +79,17 @@ def load_original_tracks_db(host, http_path, token):
 @st.cache_data(show_spinner="Loading data from Databricks...")
 def load_from_databricks(host, http_path, token):
     conn = get_connection(host, http_path, token)
-
     top_tracks = run_query(conn, f"""
         SELECT track_name, artist_name, playlist_count, popularity_tier
         FROM read_files('{VOL}/track_popularity/', format => 'parquet')
         ORDER BY playlist_count DESC
         LIMIT 50
     """)
-
     tier_dist = run_query(conn, f"""
         SELECT popularity_tier, COUNT(*) AS track_count
         FROM read_files('{VOL}/track_popularity/', format => 'parquet')
         GROUP BY popularity_tier
     """)
-
     track_info = run_query(conn, f"""
         SELECT ti.track_idx, ti.track_id, tp.track_name, tp.artist_name,
                tp.playlist_count, tp.popularity_tier
@@ -144,17 +97,14 @@ def load_from_databricks(host, http_path, token):
         LEFT JOIN read_files('{VOL}/track_popularity/', format => 'parquet') tp
             ON ti.track_id = tp.track_id
     """)
-
     recs = run_query(conn, f"""
         SELECT playlist_idx, track_idx, score, new_rank, popularity_tier
         FROM read_files('{VOL}/recommendations_reranked/', format => 'parquet')
     """)
-
     playlist_idx = run_query(conn, f"""
         SELECT * FROM read_files('{VOL}/playlist_index/', format => 'parquet')
         LIMIT 500
     """)
-
     return top_tracks, tier_dist, track_info, recs, playlist_idx
 
 @st.cache_data
@@ -165,6 +115,65 @@ def load_from_csv():
     recs         = pd.read_csv(os.path.join(DATA_DIR, "export_recommendations.csv"))
     playlist_idx = pd.read_csv(os.path.join(DATA_DIR, "export_playlist_index.csv"))
     return top_tracks, tier_dist, track_info, recs, playlist_idx
+
+# ── Sidebar ──────────────────────────────────────────────────────────────────
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Select Dashboard", [
+    "Dashboard 1: Pipeline Analytics",
+    "Dashboard 2: Recommendations"
+])
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Databricks Connection")
+
+connect_btn = False
+host = http_path = token = ""
+
+# Auto-connect from Streamlit secrets if available
+if "data" not in st.session_state and hasattr(st, "secrets"):
+    try:
+        _h  = st.secrets.get("DATABRICKS_HOST", "")
+        _hp = st.secrets.get("DATABRICKS_HTTP_PATH", "")
+        _t  = st.secrets.get("DATABRICKS_TOKEN", "")
+        if _h and _hp and _t:
+            top_tracks, tier_dist, track_info, recs, playlist_idx = load_from_databricks(_h, _hp, _t)
+            original_tracks = load_original_tracks_db(_h, _hp, _t)
+            st.session_state["data"] = (top_tracks, tier_dist, track_info, recs, playlist_idx)
+            st.session_state["original_tracks"] = original_tracks
+            st.session_state["data_source"] = "databricks"
+    except Exception:
+        pass
+
+if "data" in st.session_state:
+    st.sidebar.success("Connected to Databricks")
+    if st.sidebar.button("Disconnect", use_container_width=True):
+        del st.session_state["data"]
+        del st.session_state["data_source"]
+        st.rerun()
+else:
+    with st.sidebar.expander("Connect to Databricks", expanded=True):
+        host = st.text_input(
+            "Workspace URL",
+            value="dbc-6b2f8d9c-9761.cloud.databricks.com",
+            help="Your Databricks workspace hostname (without https://)"
+        )
+        http_path = st.text_input(
+            "HTTP Path",
+            placeholder="/sql/1.0/warehouses/xxxx",
+            help="SQL Warehouse → Connection details → HTTP Path"
+        )
+        token = st.text_input(
+            "Access Token",
+            type="password",
+            placeholder="dapi...",
+            help="User Settings → Developer → Access Tokens"
+        )
+        connect_btn = st.button("Connect & Load Data", type="primary", use_container_width=True)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Project:** Spotify MPD Recommendation Pipeline")
+st.sidebar.markdown("**Authors:** Diessner, Fiedler, Ryciuk, Leonetti Luparini, De Tuddo")
+st.sidebar.markdown("**Dataset:** 66.3M rows · 1M playlists · 2.26M tracks")
 
 # ── Resolve data source ───────────────────────────────────────────────────────
 data_loaded = False
