@@ -74,6 +74,7 @@ def load_original_tracks_db(host, http_path, token):
             SELECT track_id, track_name, artist_name, popularity_tier
             FROM read_files('{VOL}/track_popularity/', format => 'parquet')
         ) tp ON ti.track_id = tp.track_id
+        LIMIT 50000
     """)
 
 @st.cache_data(show_spinner="Loading data from Databricks...")
@@ -96,6 +97,10 @@ def load_from_databricks(host, http_path, token):
         FROM read_files('{VOL}/track_index/', format => 'parquet') ti
         LEFT JOIN read_files('{VOL}/track_popularity/', format => 'parquet') tp
             ON ti.track_id = tp.track_id
+        WHERE ti.track_idx IN (
+            SELECT DISTINCT track_idx
+            FROM read_files('{VOL}/recommendations_reranked/', format => 'parquet')
+        )
     """)
     recs = run_query(conn, f"""
         SELECT playlist_idx, track_idx, score, new_rank, popularity_tier
@@ -139,10 +144,9 @@ if "data" not in st.session_state and _secrets_host and _secrets_hp and _secrets
     with st.spinner("Connecting to Databricks..."):
         try:
             top_tracks, tier_dist, track_info, recs, playlist_idx = load_from_databricks(_secrets_host, _secrets_hp, _secrets_token)
-            original_tracks = load_original_tracks_db(_secrets_host, _secrets_hp, _secrets_token)
             st.session_state["data"] = (top_tracks, tier_dist, track_info, recs, playlist_idx)
-            st.session_state["original_tracks"] = original_tracks
             st.session_state["data_source"] = "databricks"
+            st.session_state["db_creds"] = (_secrets_host, _secrets_hp, _secrets_token)
         except Exception as e:
             st.sidebar.error(f"Auto-connect failed: {e}")
 
@@ -356,6 +360,16 @@ else:
 
     user_recs = recs_named[recs_named["playlist_idx"] == selected] \
         .sort_values("new_rank").reset_index(drop=True)
+
+    # ── Load original tracks on demand ───────────────────────────────────────
+    if "original_tracks" not in st.session_state and "db_creds" in st.session_state:
+        with st.spinner("Loading original playlist tracks..."):
+            try:
+                _h, _hp, _t = st.session_state["db_creds"]
+                st.session_state["original_tracks"] = load_original_tracks_db(_h, _hp, _t)
+            except Exception:
+                st.session_state["original_tracks"] = pd.DataFrame()
+    original_tracks = st.session_state.get("original_tracks", pd.DataFrame())
 
     # ── Original Playlist Tracks ──────────────────────────────────────────────
     if not original_tracks.empty:
