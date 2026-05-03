@@ -129,10 +129,22 @@ st.sidebar.markdown("### Databricks Connection")
 connect_btn = False
 host = http_path = token = ""
 
-# Read secrets if available
-_secrets_host  = st.secrets.get("DATABRICKS_HOST", "dbc-6b2f8d9c-9761.cloud.databricks.com") if hasattr(st, "secrets") else "dbc-6b2f8d9c-9761.cloud.databricks.com"
+# Read secrets
+_secrets_host  = st.secrets.get("DATABRICKS_HOST", "") if hasattr(st, "secrets") else ""
 _secrets_hp    = st.secrets.get("DATABRICKS_HTTP_PATH", "") if hasattr(st, "secrets") else ""
 _secrets_token = st.secrets.get("DATABRICKS_TOKEN", "") if hasattr(st, "secrets") else ""
+
+# Auto-connect from secrets on first load
+if "data" not in st.session_state and _secrets_host and _secrets_hp and _secrets_token:
+    with st.spinner("Connecting to Databricks..."):
+        try:
+            top_tracks, tier_dist, track_info, recs, playlist_idx = load_from_databricks(_secrets_host, _secrets_hp, _secrets_token)
+            original_tracks = load_original_tracks_db(_secrets_host, _secrets_hp, _secrets_token)
+            st.session_state["data"] = (top_tracks, tier_dist, track_info, recs, playlist_idx)
+            st.session_state["original_tracks"] = original_tracks
+            st.session_state["data_source"] = "databricks"
+        except Exception as e:
+            st.sidebar.error(f"Auto-connect failed: {e}")
 
 if "data" in st.session_state:
     st.sidebar.success("Connected to Databricks")
